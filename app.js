@@ -111,9 +111,45 @@ function headerLine(s) {
   return `${TITLE} / ${fmtDate(s.date)} ${s.shift}` + (s.operator ? ` / ${s.operator}` : '');
 }
 
+// Monospace table sized to fit a phone-width WhatsApp/Telegram bubble without wrapping.
+const TABLE_LABEL_W = 25;
+const TABLE_NUM_W = 5;
+
+function wrapLabel(text, width) {
+  const lines = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    for (let w = word; w; ) {
+      const piece = w.slice(0, width);
+      w = w.slice(width);
+      if (!line) line = piece;
+      else if (line.length + 1 + piece.length <= width) line += ' ' + piece;
+      else { lines.push(line); line = piece; }
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function tableRow(label, value) {
+  const lines = wrapLabel(label.normalize('NFC'), TABLE_LABEL_W);
+  return lines.map((l, k) =>
+    k === lines.length - 1 ? l.padEnd(TABLE_LABEL_W) + String(value).padStart(TABLE_NUM_W) : l
+  );
+}
+
 function shiftText(s) {
-  const lines = itemsOf(s).map((i) => `${i.label}: ${s.counts[i.id] || 0}`);
-  return [headerLine(s), '', ...lines].join('\n');
+  const rule = '-'.repeat(TABLE_LABEL_W + TABLE_NUM_W);
+  const rows = itemsOf(s).flatMap((i) => tableRow(i.label, s.counts[i.id] || 0));
+  const table = [
+    ...tableRow('Lauks', 'Sk.'),
+    rule,
+    ...rows,
+    rule,
+    ...tableRow('KOPĀ', total(s)),
+  ];
+  const meta = `${fmtDate(s.date)} ${s.shift === '20:00' ? 'Nakts' : 'Diena'} ${s.shift}` + (s.operator ? `\n${s.operator}` : '');
+  return `*${TITLE}*\n${meta}\n\`\`\`\n${table.join('\n')}\n\`\`\``;
 }
 
 function csvCell(v) {
@@ -395,7 +431,7 @@ $('exportAllBtn').addEventListener('click', () => exportCSV(history, `kausi_vest
 async function shareShift(s) {
   const text = shiftText(s);
   if (navigator.share) {
-    try { await navigator.share({ title: headerLine(s), text }); return; }
+    try { await navigator.share({ text }); return; }
     catch (err) { if (err.name === 'AbortError') return; }
   }
   try {
