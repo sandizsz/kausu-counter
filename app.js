@@ -21,6 +21,7 @@ const TITLE = 'Kausu uzskaite GB';
 const KEY_CURRENT = 'kausu.current';
 const KEY_HISTORY = 'kausu.history';
 const KEY_OPERATOR = 'kausu.operator';
+const KEY_CUSTOM = 'kausu.customItems';
 const UNDO_LIMIT = 50;
 
 const $ = (id) => document.getElementById(id);
@@ -60,8 +61,19 @@ function guessShiftDate() {
   return isoDate(d);
 }
 
+let customItems = load(KEY_CUSTOM, []);
+
+function allItems() {
+  return [...ITEMS, ...customItems];
+}
+
+// Finished shifts keep a snapshot of their fields, so renaming/deleting a custom field doesn't change history.
+function itemsOf(s) {
+  return s.items || (s === current ? allItems() : ITEMS);
+}
+
 function emptyCounts() {
-  return Object.fromEntries(ITEMS.map((i) => [i.id, 0]));
+  return Object.fromEntries(allItems().map((i) => [i.id, 0]));
 }
 
 function newShift() {
@@ -91,8 +103,8 @@ function fmtDate(iso) {
   return `${d}.${m}.${y}`;
 }
 
-function total(counts) {
-  return ITEMS.reduce((s, i) => s + (counts[i.id] || 0), 0);
+function total(s) {
+  return itemsOf(s).reduce((sum, i) => sum + (s.counts[i.id] || 0), 0);
 }
 
 function headerLine(s) {
@@ -100,7 +112,7 @@ function headerLine(s) {
 }
 
 function shiftText(s) {
-  const lines = ITEMS.map((i) => `${i.label}: ${s.counts[i.id] || 0}`);
+  const lines = itemsOf(s).map((i) => `${i.label}: ${s.counts[i.id] || 0}`);
   return [headerLine(s), '', ...lines].join('\n');
 }
 
@@ -110,8 +122,12 @@ function csvCell(v) {
 }
 
 function toCSV(shifts) {
-  const head = ['Datums', 'Maiņa', 'Operators', ...ITEMS.map((i) => i.label)];
-  const rows = shifts.map((s) => [fmtDate(s.date), s.shift, s.operator, ...ITEMS.map((i) => s.counts[i.id] || 0)]);
+  // Union of all fields across the exported shifts, in first-seen order (newest label wins).
+  const cols = new Map();
+  for (const s of [...shifts].reverse()) for (const i of itemsOf(s)) cols.set(i.id, i.label);
+  const ids = [...cols.keys()];
+  const head = ['Datums', 'Maiņa', 'Operators', ...ids.map((id) => cols.get(id))];
+  const rows = shifts.map((s) => [fmtDate(s.date), s.shift, s.operator, ...ids.map((id) => s.counts[id] || 0)]);
   return '﻿' + [head, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n');
 }
 
@@ -120,16 +136,23 @@ function toCSV(shifts) {
 function renderItems() {
   const ul = $('items');
   ul.innerHTML = '';
-  for (const item of ITEMS) {
+  for (const item of allItems()) {
     const li = document.createElement('li');
     li.className = 'row';
     li.dataset.id = item.id;
     li.innerHTML = `
-      <div class="label"></div>
+      <div class="label"><span class="label-text"></span></div>
       <button class="step minus" aria-label="Mīnus">−</button>
       <input class="value" type="number" inputmode="numeric" pattern="[0-9]*" min="0">
       <button class="step plus" aria-label="Plus">+</button>`;
-    li.querySelector('.label').textContent = item.label;
+    li.querySelector('.label-text').textContent = item.label;
+    if (item.custom) {
+      const edit = document.createElement('button');
+      edit.className = 'edit-field';
+      edit.textContent = '✎';
+      edit.setAttribute('aria-label', 'Rediģēt lauku');
+      li.querySelector('.label').appendChild(edit);
+    }
     li.querySelector('.value').setAttribute('aria-label', item.label);
     ul.appendChild(li);
   }
@@ -141,7 +164,7 @@ function refreshValues() {
     const input = li.querySelector('.value');
     if (document.activeElement !== input) input.value = current.counts[li.dataset.id];
   }
-  $('totalCount').textContent = total(current.counts);
+  $('totalCount').textContent = total(current);
   $('undoBtn').disabled = undoStack.length === 0;
   $('subtitle').textContent = `${fmtDate(current.date)} ${current.shift}`;
 }
@@ -169,6 +192,8 @@ function setCount(id, value, { recordUndo = true } = {}) {
 }
 
 $('items').addEventListener('click', (e) => {
+  const edit = e.target.closest('.edit-field');
+  if (edit) { editField(edit.closest('.row').dataset.id); return; }
   const btn = e.target.closest('.step');
   if (!btn) return;
   const id = btn.closest('.row').dataset.id;
@@ -206,11 +231,16 @@ function bindMeta() {
 
 $('finishBtn').addEventListener('click', async () => {
   const ok = await showDialog(
-    `<h2>Pabeigt maiņu?</h2><p>${esc(headerLine(current))}</p><p>Kopā: <strong>${total(current.counts)}</strong></p>` + countsTable(current),
+    `<h2>Pabeigt maiņu?</h2><p>${esc(headerLine(current))}</p><p>Kopā: <strong>${total(current)}</strong></p>` + countsTable(current),
     [{ label: 'Atcelt', value: '' }, { label: 'Saglabāt', value: 'ok', cls: 'primary' }]
   );
   if (ok !== 'ok') return;
-  const finished = { ...current, counts: { ...current.counts }, finishedAt: Date.now() };
+  const finished = {
+    ...current,
+    counts: { ...current.counts },
+    items: allItems().map(({ id, label }) => ({ id, label })),
+    finishedAt: Date.now(),
+  };
   history.unshift(finished);
   save(KEY_HISTORY, history);
   const operator = current.operator;
@@ -245,6 +275,56 @@ function bindMetaValues() {
 
 $('shareBtn').addEventListener('click', () => shareShift(current));
 
+// ---------- custom fields ----------
+
+function saveCustomItems() {
+  save(KEY_CUSTOM, customItems);
+  current.counts = { ...emptyCounts(), ...current.counts };
+  persist();
+  renderItems();
+}
+
+$('addFieldBtn').addEventListener('click', async () => {
+  const label = await promptText('Jauns lauks', '', 'Piem. Zāģskaidas KAUSI');
+  if (!label) return;
+  customItems.push({ id: 'c_' + Date.now().toString(36), label, custom: true });
+  saveCustomItems();
+  const rows = $('items').children;
+  rows[rows.length - 1].scrollIntoView({ block: 'center', behavior: 'smooth' });
+  toast('Lauks pievienots');
+});
+
+async function editField(id) {
+  const item = customItems.find((i) => i.id === id);
+  if (!item) return;
+  const act = await showDialog(
+    `<h2>Rediģēt lauku</h2><label class="dlg-field">Nosaukums<input id="fieldName" type="text"></label>`,
+    [{ label: 'Dzēst', value: 'delete', cls: 'danger' }, { label: 'Atcelt', value: '' }, { label: 'Saglabāt', value: 'ok', cls: 'primary' }],
+    () => { const inp = $('fieldName'); inp.value = item.label; return inp; }
+  );
+  if (act === 'ok') {
+    const label = $('fieldName').value.trim();
+    if (label) { item.label = label; saveCustomItems(); }
+  } else if (act === 'delete') {
+    const sure = await showDialog(`<h2>Dzēst lauku “${esc(item.label)}”?</h2><p>Šīs maiņas skaits šim laukam tiks dzēsts. Saglabātās maiņas netiek mainītas.</p>`,
+      [{ label: 'Atcelt', value: '' }, { label: 'Dzēst', value: 'yes', cls: 'danger' }]);
+    if (sure !== 'yes') return;
+    customItems = customItems.filter((i) => i.id !== id);
+    delete current.counts[id];
+    for (let k = undoStack.length - 1; k >= 0; k--) if (undoStack[k].id === id) undoStack.splice(k, 1);
+    saveCustomItems();
+  }
+}
+
+async function promptText(title, value, placeholder) {
+  const act = await showDialog(
+    `<h2>${esc(title)}</h2><label class="dlg-field">Nosaukums<input id="fieldName" type="text"></label>`,
+    [{ label: 'Atcelt', value: '' }, { label: 'Pievienot', value: 'ok', cls: 'primary' }],
+    () => { const inp = $('fieldName'); inp.value = value; inp.placeholder = placeholder; return inp; }
+  );
+  return act === 'ok' ? $('fieldName').value.trim() : '';
+}
+
 // ---------- UI: history ----------
 
 let view = 'counter';
@@ -278,7 +358,7 @@ function renderHistory() {
     li.innerHTML = `<div><div class="h-main"></div><div class="h-sub"></div></div><div class="h-total"></div>`;
     li.querySelector('.h-main').textContent = `${fmtDate(s.date)} ${s.shift}`;
     li.querySelector('.h-sub').textContent = s.operator || '—';
-    li.querySelector('.h-total').textContent = total(s.counts);
+    li.querySelector('.h-total').textContent = total(s);
     li.addEventListener('click', () => openHistoryItem(idx));
     ul.appendChild(li);
   });
@@ -287,7 +367,7 @@ function renderHistory() {
 async function openHistoryItem(idx) {
   const s = history[idx];
   const act = await showDialog(
-    `<h2>${esc(fmtDate(s.date))} ${esc(s.shift)}</h2><p>${esc(s.operator || '—')} · Kopā: <strong>${total(s.counts)}</strong></p>` + countsTable(s),
+    `<h2>${esc(fmtDate(s.date))} ${esc(s.shift)}</h2><p>${esc(s.operator || '—')} · Kopā: <strong>${total(s)}</strong></p>` + countsTable(s),
     [
       { label: 'Dzēst', value: 'delete', cls: 'danger' },
       { label: 'CSV', value: 'csv' },
@@ -353,10 +433,10 @@ function esc(s) {
 }
 
 function countsTable(s) {
-  return '<table>' + ITEMS.map((i) => `<tr><td>${esc(i.label)}</td><td>${s.counts[i.id] || 0}</td></tr>`).join('') + '</table>';
+  return '<table>' + itemsOf(s).map((i) => `<tr><td>${esc(i.label)}</td><td>${s.counts[i.id] || 0}</td></tr>`).join('') + '</table>';
 }
 
-function showDialog(html, buttons) {
+function showDialog(html, buttons, setup) {
   const dlg = $('dialog');
   $('dialogBody').innerHTML = html;
   const menu = $('dialogMenu');
@@ -369,9 +449,16 @@ function showDialog(html, buttons) {
     menu.appendChild(btn);
   }
   dlg.returnValue = '';
+  const input = setup && setup();
   return new Promise((resolve) => {
     dlg.addEventListener('close', () => resolve(dlg.returnValue), { once: true });
     dlg.showModal();
+    if (input) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); dlg.close('ok'); }
+      });
+      input.focus();
+    }
   });
 }
 
