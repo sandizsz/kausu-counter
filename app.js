@@ -23,6 +23,7 @@ const KEY_HISTORY = 'kausu.history';
 const KEY_OPERATOR = 'kausu.operator';
 const KEY_CUSTOM = 'kausu.customItems';
 const UNDO_LIMIT = 50;
+const APP_VERSION = 6;
 
 const $ = (id) => document.getElementById(id);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -524,11 +525,23 @@ document.addEventListener('visibilitychange', () => {
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  // When an update takes over, reload once so the new version shows immediately (counts are already saved).
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {}));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {});
+  });
 }
 
 // ---------- init ----------
 
+$('version').textContent = 'Versija ' + APP_VERSION;
 bindMeta();
 renderItems();
 setView('counter');
