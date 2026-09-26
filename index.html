@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2e7d6b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Kausi">
+  <title>Kausu uzskaite</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="navBtn" class="icon-btn" aria-label="Vēsture">☰</button>
+    <div class="title">
+      <div class="crumb">Kausu uzskaite GB</div>
+      <div id="subtitle" class="sub"></div>
+    </div>
+  </header>
+
+  <!-- Counter view -->
+  <main id="counterView">
+    <section class="meta">
+      <label>Datums
+        <input type="date" id="dateInput">
+      </label>
+      <label>Maiņa
+        <select id="shiftInput">
+          <option value="08:00">Diena 08:00</option>
+          <option value="20:00">Nakts 20:00</option>
+        </select>
+      </label>
+      <label class="wide">Operators
+        <input type="text" id="operatorInput" placeholder="Vārds Uzvārds" autocomplete="name">
+      </label>
+    </section>
+
+    <ul id="items" class="items"></ul>
+
+    <div class="finish-wrap">
+      <button id="finishBtn" class="btn primary big">Pabeigt maiņu</button>
+    </div>
+  </main>
+
+  <!-- History view -->
+  <main id="historyView" hidden>
+    <div class="history-actions">
+      <button id="exportAllBtn" class="btn">Lejupielādēt visu (CSV)</button>
+    </div>
+    <ul id="historyList" class="history"></ul>
+    <p id="historyEmpty" class="empty" hidden>Nav saglabātu maiņu.</p>
+  </main>
+
+  <footer id="bottomBar" class="bottombar">
+    <button id="undoBtn" class="btn" disabled>↶ Atsaukt</button>
+    <div class="total">Kopā: <strong id="totalCount">0</strong></div>
+    <button id="shareBtn" class="btn">Dalīties</button>
+  </footer>
+
+  <dialog id="dialog">
+    <form method="dialog">
+      <div id="dialogBody"></div>
+      <menu id="dialogMenu"></menu>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
