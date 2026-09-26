@@ -1,4 +1,4 @@
-const CACHE = 'kausi-v7';
+const CACHE = 'kausi-v8';
 const ASSETS = [
   './',
   'index.html',

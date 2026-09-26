@@ -23,7 +23,7 @@ const KEY_HISTORY = 'kausu.history';
 const KEY_OPERATOR = 'kausu.operator';
 const KEY_CUSTOM = 'kausu.customItems';
 const UNDO_LIMIT = 50;
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 
 const $ = (id) => document.getElementById(id);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -300,7 +300,7 @@ $('finishBtn').addEventListener('click', async () => {
   refreshValues();
   const act = await showDialog(
     `<h2>Maiņa saglabāta</h2><p>Nosūtīt atskaiti?</p>`,
-    [{ label: 'Vēlāk', value: '' }, { label: 'Dalīties', value: 'share', cls: 'primary' }]
+    [{ label: 'Dalīties', value: 'share' }, { label: 'Vēlāk', value: '', cls: 'green' }]
   );
   if (act === 'share') shareShift(finished);
 });
@@ -430,17 +430,121 @@ $('exportAllBtn').addEventListener('click', () => exportCSV(history, `kausi_vest
 
 // ---------- sharing / export ----------
 
+// ---------- report image ----------
+
+function wrapToWidth(ctx, text, maxW) {
+  const lines = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    const test = line ? line + ' ' + word : word;
+    if (!line || ctx.measureText(test).width <= maxW) line = test;
+    else { lines.push(line); line = word; }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function renderReportCanvas(s) {
+  const W = 1080, PAD = 48, NUM_W = 200, LINE_H = 50, ROW_PAD = 22;
+  const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  const labelW = W - PAD * 2 - NUM_W - 24;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  ctx.font = `500 38px ${FONT}`;
+  const rows = itemsOf(s).map((i) => ({ lines: wrapToWidth(ctx, i.label, labelW), value: s.counts[i.id] || 0 }));
+  const HEADER_H = s.operator ? 250 : 200;
+  const COLS_H = 76;
+  const bodyH = rows.reduce((h, r) => h + r.lines.length * LINE_H + ROW_PAD * 2, 0);
+  const TOTAL_H = 110;
+  canvas.width = W;
+  canvas.height = HEADER_H + COLS_H + bodyH + TOTAL_H + PAD;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, canvas.height);
+
+  // header
+  ctx.fillStyle = '#2e7d6b';
+  ctx.fillRect(0, 0, W, HEADER_H);
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `700 56px ${FONT}`;
+  ctx.fillText(TITLE, PAD, 90);
+  ctx.font = `500 42px ${FONT}`;
+  ctx.fillText(`${fmtDate(s.date)} · ${s.shift === '20:00' ? 'Nakts' : 'Diena'} ${s.shift}`, PAD, 155);
+  if (s.operator) ctx.fillText(s.operator, PAD, 212);
+
+  // column headings
+  let y = HEADER_H;
+  ctx.fillStyle = '#eef3f1';
+  ctx.fillRect(0, y, W, COLS_H);
+  ctx.fillStyle = '#6a716e';
+  ctx.font = `600 32px ${FONT}`;
+  ctx.fillText('Lauks', PAD, y + 50);
+  ctx.textAlign = 'right';
+  ctx.fillText('Skaits', W - PAD, y + 50);
+  ctx.textAlign = 'left';
+  y += COLS_H;
+
+  // rows
+  rows.forEach((r, idx) => {
+    const h = r.lines.length * LINE_H + ROW_PAD * 2;
+    if (idx % 2) { ctx.fillStyle = '#f6f8f7'; ctx.fillRect(0, y, W, h); }
+    ctx.fillStyle = '#1c1f1e';
+    ctx.font = `500 38px ${FONT}`;
+    r.lines.forEach((l, k) => ctx.fillText(l, PAD, y + ROW_PAD + 38 + k * LINE_H));
+    ctx.textAlign = 'right';
+    ctx.font = `700 48px ${FONT}`;
+    ctx.fillStyle = r.value ? '#1c1f1e' : '#b4bab7';
+    ctx.fillText(String(r.value), W - PAD, y + h / 2 + 17);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#dde1df';
+    ctx.fillRect(PAD, y + h - 2, W - PAD * 2, 2);
+    y += h;
+  });
+
+  // total
+  ctx.fillStyle = '#2e7d6b';
+  ctx.fillRect(0, y, W, TOTAL_H);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `700 46px ${FONT}`;
+  ctx.fillText('KOPĀ', PAD, y + 70);
+  ctx.textAlign = 'right';
+  ctx.font = `800 58px ${FONT}`;
+  ctx.fillText(String(total(s)), W - PAD, y + 74);
+  ctx.textAlign = 'left';
+  return canvas;
+}
+
+// Synchronous PNG conversion keeps the tap's user activation alive for navigator.share on iOS.
+function canvasToFile(canvas, filename) {
+  const bin = atob(canvas.toDataURL('image/png').split(',')[1]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], filename, { type: 'image/png' });
+}
+
 async function shareShift(s) {
-  const text = shiftText(s);
-  if (navigator.share) {
-    try { await navigator.share({ text }); return; }
+  const canvas = renderReportCanvas(s);
+  const filename = `kausi_${s.date}_${s.shift.replace(':', '')}.png`;
+  const file = canvasToFile(canvas, filename);
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; }
     catch (err) { if (err.name === 'AbortError') return; }
   }
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('Nokopēts starpliktuvē');
-  } catch {
-    showDialog(`<h2>Atskaite</h2><pre style="white-space:pre-wrap">${esc(text)}</pre>`, [{ label: 'Aizvērt', value: '' }]);
+  // Fallback: show the image so it can be long-pressed/saved, plus a download button.
+  const url = canvas.toDataURL('image/png');
+  const act = await showDialog(
+    `<h2>Atskaite</h2><p>Turi nospiestu attēlu, lai saglabātu vai kopētu.</p><img src="${url}" alt="Atskaite" style="width:100%;border:1px solid var(--line);border-radius:6px">`,
+    [{ label: 'Aizvērt', value: '' }, { label: 'Lejupielādēt', value: 'dl', cls: 'primary' }]
+  );
+  if (act === 'dl') {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 }
 

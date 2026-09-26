@@ -178,3 +178,5 @@ dialog menu .btn { flex: 1 1 auto; }
   .row { grid-template-columns: 1fr 48px 60px 48px; gap: 4px; padding: 8px 6px; }
   .row .label { font-size: 14px; }
 }
+.btn.green { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.green:active { background: var(--green-dark); }
