@@ -23,7 +23,7 @@ const KEY_HISTORY = 'kausu.history';
 const KEY_OPERATOR = 'kausu.operator';
 const KEY_CUSTOM = 'kausu.customItems';
 const UNDO_LIMIT = 50;
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 const $ = (id) => document.getElementById(id);
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -186,7 +186,7 @@ function renderItems() {
     if (item.custom) {
       const edit = document.createElement('button');
       edit.className = 'edit-field';
-      edit.textContent = '✎';
+      edit.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
       edit.setAttribute('aria-label', 'Rediģēt lauku');
       li.querySelector('.label').appendChild(edit);
     }
@@ -204,6 +204,7 @@ function refreshValues() {
   $('totalCount').textContent = total(current);
   $('undoBtn').disabled = undoStack.length === 0;
   $('subtitle').textContent = `${fmtDate(current.date)} ${current.shift}`;
+  $('dateText').textContent = fmtDate(current.date);
 }
 
 function flash(id) {
